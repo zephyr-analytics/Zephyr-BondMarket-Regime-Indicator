@@ -1,0 +1,77 @@
+//@version=6
+indicator("Bond Market Regime (%)", overlay=false)
+
+// === Inputs ===
+symT = input.symbol("VGIT", "Treasury ~5Y (VGIT)")
+symI = input.symbol("VCIT", "IG Corp ~5Y (VCIT)")
+symH = input.symbol("HYG",  "High Yield (HYG)")
+
+holdBars = input.int(1, "RISK OFF Hold Bars", minval=1)
+
+// === Prices ===
+pT = request.security(symT, "D", close)
+pI = request.security(symI, "D", close)
+pH = request.security(symH, "D", close)
+
+// === Cumulative return ===
+cumret(src, length) =>
+    prev = src[length]
+    na(prev) or prev == 0.0 ? na : (src / prev) - 1.0
+
+avgCumMom(src) =>
+    r21  = cumret(src, 10)
+    r63  = cumret(src, 21)
+    r126 = cumret(src, 63)
+    (r21 + r63 + r126) / 3.0
+
+// === Raw momentum (logic uses these) ===
+mT = avgCumMom(pT)
+mI = avgCumMom(pI)
+mH = avgCumMom(pH)
+
+// === Percent display versions ===
+mT_pct = math.round(mT * 100.0, 2)
+mI_pct = math.round(mI * 100.0, 2)
+mH_pct = math.round(mH * 100.0, 2)
+
+// === Risk logic (UNCHANGED) ===
+hyHardRiskOff   = mH <= 0
+treasAboveBoth = (mT > mI) and (mT > mH)
+
+riskNow = hyHardRiskOff or treasAboveBoth
+
+var int riskOffHoldCounter = 0
+riskFlipNow = riskNow and not riskNow[1]
+
+if riskFlipNow
+    riskOffHoldCounter := holdBars
+else if riskOffHoldCounter > 0
+    riskOffHoldCounter -= 1
+
+isRiskOff = riskNow or (riskOffHoldCounter > 0)
+
+// === Plots (PERCENT) ===
+hline(0.0, "Zero", linestyle=hline.style_dotted)
+
+plot(mT_pct, title="VGIT AvgCumRet %", color=color.white, linewidth=2)
+plot(mI_pct, title="VCIT AvgCumRet %", color=color.blue, linewidth=2)
+plot(mH_pct, title="HYG AvgCumRet %",  color=color.purple, linewidth=2)
+
+bgcolor(isRiskOff ? color.new(color.white, 75) : na)
+
+// === Table (fixed order, colored like plots) ===
+var table t = table.new(position.bottom_right, 4, 1, border_width=1)
+
+signalText  = isRiskOff ? "RISK OFF" : "RISK ON"
+signalColor = isRiskOff ? color.red : color.green
+
+table.cell(t, 2, 0, "VGIT: " + str.tostring(mT_pct) + "%", text_color=color.white)
+table.cell(t, 1, 0, "VCIT: " + str.tostring(mI_pct) + "%", text_color=color.blue)
+table.cell(t, 0, 0, "HYG:  " + str.tostring(mH_pct) + "%", text_color=color.purple)
+
+table.cell(
+    t, 3, 0,
+    signalText,
+    text_color=color.white,
+    bgcolor=signalColor
+)
